@@ -147,32 +147,47 @@ class VKontakteUserScraper(snscrape.base.Scraper):
 			return _localised_datetime(tz, year, month, day, hour, minute)
 		if (match := re.match(r'^(?P<day>\d+)\s+(?P<month>' + '|'.join(_months) + r')\s+(?P<year>\d{4})$', dateSpan.text)):
 			# Date only
-			return datetime.date(int(match.group('year')), _months.index(match.group('month')) + 1, int(match.group('day')))
+			return datetime.date(
+				int(match['year']), _months.index(match['month']) + 1, int(match['day'])
+			)
 		if dateSpan.text not in ('video', 'photo'): # Silently ignore video and photo reposts which have no original date attached
 			_logger.warning(f'Could not parse date string: {dateSpan.text!r}')
 
 	def _post_div_to_item(self, post, isCopy = False):
-		postLink = post.find('a', class_ = 'post_link' if not isCopy else 'published_by_date')
+		postLink = post.find(
+			'a', class_='published_by_date' if isCopy else 'post_link'
+		)
 		if not postLink:
 			_logger.warning(f'Skipping post without link: {str(post)[:200]!r}')
 			return
 		url = urllib.parse.urljoin(self._baseUrl, postLink['href'])
 		assert (url.startswith('https://vk.com/wall') or (isCopy and (url.startswith('https://vk.com/video') or url.startswith('https://vk.com/photo')))) and '_' in url and url[-1] != '_' and url.rsplit('_', 1)[1].strip('0123456789') in ('', '?reply=')
-		if not isCopy:
-			dateSpan = post.find('div', class_ = 'post_date').find('span', class_ = 'rel_date')
-		else:
-			dateSpan = post.find('div', class_ = 'copy_post_date').find('a', class_ = 'published_by_date')
+		dateSpan = (
+			post.find('div', class_='copy_post_date').find(
+				'a', class_='published_by_date'
+			)
+			if isCopy
+			else post.find('div', class_='post_date').find('span', class_='rel_date')
+		)
 		textDiv = post.find('div', class_ = 'wall_post_text')
 		outlinks = [h for a in textDiv.find_all('a') if (h := self._away_a_to_url(a))] if textDiv else []
 		if (mediaLinkDiv := post.find('div', class_ = 'media_link')) and \
-		   (mediaLinkA := mediaLinkDiv.find('a', class_ = 'media_link__title')) and \
-		   (href := self._away_a_to_url(mediaLinkA)) and \
-		   href not in outlinks:
+			   (mediaLinkA := mediaLinkDiv.find('a', class_ = 'media_link__title')) and \
+			   (href := self._away_a_to_url(mediaLinkA)) and \
+			   href not in outlinks:
 			outlinks.append(href)
 		photos = None
 		video = None
-		if (thumbsDiv := (post.find('div', class_ = 'wall_text') if not isCopy else post).find('div', class_ = 'page_post_sized_thumbs')) and \
-		   not (not isCopy and thumbsDiv.parent.name == 'div' and 'class' in thumbsDiv.parent.attrs and 'copy_quote' in thumbsDiv.parent.attrs['class']): # Skip post quotes
+		if (
+			thumbsDiv := (
+				post if isCopy else post.find('div', class_='wall_text')
+			).find('div', class_='page_post_sized_thumbs')
+		) and (
+			isCopy
+			or thumbsDiv.parent.name != 'div'
+			or 'class' not in thumbsDiv.parent.attrs
+			or 'copy_quote' not in thumbsDiv.parent.attrs['class']
+		): # Skip post quotes
 			photos = []
 			for a in thumbsDiv.find_all('a', class_ = 'page_post_thumb_wrap'):
 				if not self.is_photo(a) and 'data-video' not in a.attrs:
@@ -202,10 +217,31 @@ class VKontakteUserScraper(snscrape.base.Scraper):
 					x_ = f'{x}_'
 					if not photoObj['temp'][x_][0].startswith('https://'):
 						photoObj['temp'][x_][0] = f'{photoObj["temp"]["base"]}{photoObj["temp"][x_][0]}'
-				if any(k not in {'base', 'w', 'w_', 'x', 'x_', 'y', 'y_', 'z', 'z_'} for k in photoObj['temp'].keys()) or \
-				   not all(photoObj['temp'][x] in (photoObj['temp'][f'{x}_'][0], photoObj['temp'][f'{x}_'][0] + '.jpg') for x in singleLetterKeys) or \
-				   not all(photoObj['temp'][x].startswith('https://sun') and '.userapi.com/' in photoObj['temp'][x] for x in singleLetterKeys) or \
-				   not all(len(photoObj['temp'][(x_ := f'{x}_')]) == 3 and isinstance(photoObj['temp'][x_][1], int) and isinstance(photoObj['temp'][x_][2], int) for x in singleLetterKeys):
+				if (
+					any(
+						k not in {'base', 'w', 'w_', 'x', 'x_', 'y', 'y_', 'z', 'z_'}
+						for k in photoObj['temp'].keys()
+					)
+					or any(
+						photoObj['temp'][x]
+						not in (
+							photoObj['temp'][f'{x}_'][0],
+							photoObj['temp'][f'{x}_'][0] + '.jpg',
+						)
+						for x in singleLetterKeys
+					)
+					or not all(
+						photoObj['temp'][x].startswith('https://sun')
+						and '.userapi.com/' in photoObj['temp'][x]
+						for x in singleLetterKeys
+					)
+					or not all(
+						len(photoObj['temp'][(x_ := f'{x}_')]) == 3
+						and isinstance(photoObj['temp'][x_][1], int)
+						and isinstance(photoObj['temp'][x_][2], int)
+						for x in singleLetterKeys
+					)
+				):
 					_logger.warning(f'Photo thumb wrap on {url} has unexpected data structure, skipping')
 					continue
 				photoVariants = []
@@ -313,9 +349,7 @@ class VKontakteUserScraper(snscrape.base.Scraper):
 		 )
 		if r.status_code != 200:
 			raise snscrape.base.ScraperException(f'Got status code {r.status_code}')
-		# Convert to JSON and read the HTML payload.  Note that this implicitly converts the data to a Python string (i.e., Unicode), away from a windows-1251-encoded bytes.
-		posts = r.json()['payload'][1][0]
-		return posts
+		return r.json()['payload'][1][0]
 
 	def _get_entity(self):
 		r, soup = self._initial_page()

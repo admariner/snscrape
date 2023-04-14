@@ -56,8 +56,7 @@ def _json_serialise_datetime(obj):
 
 def _json_dataclass_to_dict(obj):
 	if isinstance(obj, _JSONDataclass) or dataclasses.is_dataclass(obj):
-		out = {}
-		out['_type'] = f'{type(obj).__module__}.{type(obj).__name__}'
+		out = {'_type': f'{type(obj).__module__}.{type(obj).__name__}'}
 		for field in dataclasses.fields(obj):
 			assert field.name != '_type'
 			if field.name.startswith('_'):
@@ -240,12 +239,10 @@ class Scraper:
 				sleepTime = 1.0 * 2**attempt # exponential backoff: sleep 1 second after first attempt, 2 after second, 4 after third, etc.
 				_logger.info(f'Waiting {sleepTime:.0f} seconds')
 				time.sleep(sleepTime)
-		else:
-			msg = f'{self._retries + 1} requests to {req.url} failed, giving up.'
-			_logger.fatal(msg)
-			_logger.fatal(f'Errors: {", ".join(errors)}')
-			raise ScraperException(msg)
-		raise RuntimeError('Reached unreachable code')
+		msg = f'{self._retries + 1} requests to {req.url} failed, giving up.'
+		_logger.fatal(msg)
+		_logger.fatal(f'Errors: {", ".join(errors)}')
+		raise ScraperException(msg)
 
 	def _get(self, *args, **kwargs):
 		return self._request('GET', *args, **kwargs)

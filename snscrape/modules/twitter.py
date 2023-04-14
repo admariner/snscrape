@@ -688,7 +688,7 @@ class _TwitterAPIScraper(snscrape.base.Scraper):
 			r = self._get(self._baseUrl if url is None else url, headers = {'User-Agent': self._userAgent}, responseOkCallback = self._check_guest_token_response)
 			if (match := re.search(r'document\.cookie = decodeURIComponent\("gt=(\d+); Max-Age=10800; Domain=\.twitter\.com; Path=/; Secure"\);', r.text)):
 				_logger.debug('Found guest token in HTML')
-				self._guestTokenManager.token = match.group(1)
+				self._guestTokenManager.token = match[1]
 			if 'gt' in r.cookies:
 				_logger.debug('Found guest token in cookies')
 				self._guestTokenManager.token = r.cookies['gt']
@@ -859,15 +859,14 @@ class _TwitterAPIScraper(snscrape.base.Scraper):
 					yield self._user_to_user(obj['globalObjects']['users'][entry['content']['item']['content']['user']['id']])
 
 	def _v2_instruction_tweet_entry_to_tweet(self, entryId, entry, obj):
-		if 'tweet' in entry['item']['content']:
-			if 'promotedMetadata' in entry['item']['content']['tweet']: # Promoted tweet aka ads
-				return
-			if entry['item']['content']['tweet']['id'] not in obj['globalObjects']['tweets']:
-				_logger.warning(f'Skipping tweet {entry["item"]["content"]["tweet"]["id"]} which is not in globalObjects')
-				return
-			tweet = obj['globalObjects']['tweets'][entry['item']['content']['tweet']['id']]
-		else:
+		if 'tweet' not in entry['item']['content']:
 			raise snscrape.base.ScraperException(f'Unable to handle entry {entryId!r}')
+		if 'promotedMetadata' in entry['item']['content']['tweet']: # Promoted tweet aka ads
+			return
+		if entry['item']['content']['tweet']['id'] not in obj['globalObjects']['tweets']:
+			_logger.warning(f'Skipping tweet {entry["item"]["content"]["tweet"]["id"]} which is not in globalObjects')
+			return
+		tweet = obj['globalObjects']['tweets'][entry['item']['content']['tweet']['id']]
 		yield self._tweet_to_tweet(tweet, obj)
 
 	def _get_tweet_id(self, tweet):
@@ -897,9 +896,9 @@ class _TwitterAPIScraper(snscrape.base.Scraper):
 		if 'source' in tweet:
 			kwargs['source'] = tweet['source']
 			if (match := re.search(r'href=[\'"]?([^\'" >]+)', tweet['source'])):
-				kwargs['sourceUrl'] = match.group(1)
+				kwargs['sourceUrl'] = match[1]
 			if (match := re.search(r'>([^<]*)<', tweet['source'])):
-				kwargs['sourceLabel'] = match.group(1)
+				kwargs['sourceLabel'] = match[1]
 		if 'extended_entities' in tweet and 'media' in tweet['extended_entities']:
 			media = []
 			for medium in tweet['extended_entities']['media']:
@@ -979,10 +978,15 @@ class _TwitterAPIScraper(snscrape.base.Scraper):
 			if medium.get('ext_alt_text'):
 				mKwargs['altText'] = medium['ext_alt_text']
 			return Photo(**mKwargs)
-		elif medium['type'] == 'video' or medium['type'] == 'animated_gif':
-			variants = []
-			for variant in medium['video_info']['variants']:
-				variants.append(VideoVariant(contentType = variant['content_type'], url = variant['url'], bitrate = variant.get('bitrate')))
+		elif medium['type'] in ['video', 'animated_gif']:
+			variants = [
+				VideoVariant(
+					contentType=variant['content_type'],
+					url=variant['url'],
+					bitrate=variant.get('bitrate'),
+				)
+				for variant in medium['video_info']['variants']
+			]
 			mKwargs = {
 				'thumbnailUrl': medium['media_url_https'],
 				'variants': variants,

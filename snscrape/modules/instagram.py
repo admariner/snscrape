@@ -167,7 +167,10 @@ class InstagramUserScraper(_InstagramCommonScraper):
 		ogDescription = r.text[ogDescriptionContentPos : r.text.index('"', ogDescriptionContentPos)]
 
 		numPattern = r'\d+(?:\.\d+)?m|\d+(?:\.\d+)?k|\d+,\d+|\d+'
-		ogDescriptionPattern = re.compile('^(' + numPattern + ') Followers, (' + numPattern + ') Following, (' + numPattern + r') Posts - See Instagram photos and videos from (?:(.*?) \(@([a-z0-9_.]+)\)|@([a-z0-9_-]+))$')
+		ogDescriptionPattern = re.compile(
+			f'^({numPattern}) Followers, ({numPattern}) Following, ({numPattern}'
+			+ r') Posts - See Instagram photos and videos from (?:(.*?) \(@([a-z0-9_.]+)\)|@([a-z0-9_-]+))$'
+		)
 		m = ogDescriptionPattern.match(ogDescription)
 		assert m, 'unexpected og:description format'
 
@@ -179,16 +182,16 @@ class InstagramUserScraper(_InstagramCommonScraper):
 			else:
 				return int(s.replace(',', '')), 1
 
-		followers = snscrape.base.IntWithGranularity(*parse_num(m.group(1)))
-		following = snscrape.base.IntWithGranularity(*parse_num(m.group(2)))
-		posts = snscrape.base.IntWithGranularity(*parse_num(m.group(3)))
+		followers = snscrape.base.IntWithGranularity(*parse_num(m[1]))
+		following = snscrape.base.IntWithGranularity(*parse_num(m[2]))
+		posts = snscrape.base.IntWithGranularity(*parse_num(m[3]))
 		return User(
-			username = m.group(5) or m.group(6),
-			name = m.group(4) or None,
-			followers = followers,
-			following = following,
-			posts = posts,
-		  )
+			username=m[5] or m[6],
+			name=m[4] or None,
+			followers=followers,
+			following=following,
+			posts=posts,
+		)
 
 	@classmethod
 	def _cli_setup_parser(cls, subparser):
